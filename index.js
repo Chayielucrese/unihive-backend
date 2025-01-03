@@ -3,6 +3,10 @@ import express from "express";
 import mongoose from "mongoose";
 import { Server } from "socket.io";
 import authRoutes from "./routes/auth.routes.js";
+import serviceCategoryRoutes from "./routes/category.routes.js";
+import serviceRoutes from "./routes/service.routes.js";
+import reviewRoutes from "./routes/review.routes.js";
+import userRoutes from "./routes/user.routes.js";
 import http from "http";
 
 const app = express();
@@ -29,6 +33,10 @@ mongoose
   });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/category", serviceCategoryRoutes);
+app.use("/api/service", serviceRoutes);
+app.use("/api/review", reviewRoutes);
+app.use("/api/user", userRoutes);
 app.listen("9000", console.log("server is listening on port 8082"));
 
 export { io };

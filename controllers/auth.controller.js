@@ -20,7 +20,7 @@ const userSchema = Joi.object({
     .pattern(/^[0-9]{3}-[0-9]{3}-[0-9]{4}$/),
   password: Joi.string().min(8).required(),
   cpassword: Joi.string().min(8).required(),
-  studentID: Joi.string().max(8).required(),
+  studentID: Joi.string().max(9).required(),
 });
 
 const saltRounds = 10;
@@ -42,13 +42,17 @@ export const register = async (req, res) => {
     const user = await userServices.getOneUser({ email: req.body.email });
     if (user) {
       return res
-        .status(STATUS_CODES.BAD_REQUEST)
+        .status(STATUS_CODES.CONFLICT)
         .json({ message: "User with this email already exists!" });
     }
+    if (await userServices.getOneUser({ studentID: req.body.studentID }))
+      return res
+        .status(STATUS_CODES.CONFLICT)
+        .json({ message: "StudentID Already Exist" });
     const user_with_tel = await userServices.getOneUser({ tel: req.body.tel });
     if (user_with_tel) {
       return res
-        .status(STATUS_CODES.BAD_REQUEST)
+        .status(STATUS_CODES.CONFLICT)
         .json({ message: "User with this phone number already exists!" });
     }
     const hashed_password = await bcrypt.hash(password, saltRounds);
@@ -148,7 +152,6 @@ export const adminLogin = async (req, res) => {
       role: "admin",
       status: { $in: ["pending", "complete"] },
     });
-
     if (!user) {
       return res
         .status(STATUS_CODES.BAD_REQUEST)
@@ -159,22 +162,29 @@ export const adminLogin = async (req, res) => {
       req.body.password,
       user.password
     );
-    if (!passwordValid)
+    if (!passwordValid) {
       return res
         .status(STATUS_CODES.BAD_REQUEST)
         .json({ message: "Authentication failed. Invalid credentials." });
+    }
+
     const { password, ...user_without_password } = user._doc;
+
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_TOKEN_KEY,
+      { expiresIn: config.JWT_EXPIRE_TIME }
+    );
     return res.status(STATUS_CODES.OK).json({
       data: user_without_password,
-      token: jwt.sign({ user_without_password }, process.env.JWT_TOKEN_KEY, {
-        expiresIn: config.JWT_EXPIRE_TIME,
-      }),
+      token,
       message: "Admin logged in successfully",
     });
   } catch (error) {
-    res
+    console.error("Error in adminLogin:", error.message);
+    return res
       .status(STATUS_CODES.INTERNAL_SERVER_ERROR)
-      .json({ error: error.message });
+      .json({ error: "An unexpected error occurred." });
   }
 };
 
@@ -188,60 +198,6 @@ export const forgotPassword = async (req, res) => {
     return res
       .status(STATUS_CODES.OK)
       .json({ message: "Password updated successfully !" });
-  } catch (error) {
-    return res
-      .status(STATUS_CODES.INTERNAL_SERVER_ERROR)
-      .json({ message: error.message });
-  }
-};
-
-export const sendAccountVerificationCode = async (req, res) => {
-  try {
-    let token = "";
-    let isTokenExist = true;
-    do {
-      token = generateString(4);
-      const result = await tokenService.getOneToken({ token });
-      if (!result) isTokenExist = false;
-    } while (isTokenExist);
-    const tokenPayload = jwt.sign(
-      { token, email: req.body.email },
-      process.env.JWT_TOKEN_KEY,
-      {
-        expiresIn: config.OTP_EXPIRE_TIME,
-      }
-    );
-    const saveToken = await tokenService.createToken({
-      token,
-      email: req.body.email,
-      jwt_value: tokenPayload,
-    });
-    const user = await userServices.getOneUser({ email: req.body.email });
-    if (saveToken) {
-      const msg = {
-        to: req.body.email,
-        subject: "Unihive Account Confirmation",
-        content: mailMessages(
-          "create-account",
-          tokenPayload,
-          user?.username,
-          req.body.email
-        ),
-        html: true,
-      };
-      SENDMAIL(msg, (info) => {
-        if (info.messageId) {
-          console.log("Mail sent: ", info.messageId);
-        }
-      });
-      return res
-        .json({
-          data: user,
-          status: "success",
-          message: "Check your mail for account verification !!!",
-        })
-        .status(STATUS_CODES.OK);
-    }
   } catch (error) {
     return res
       .status(STATUS_CODES.INTERNAL_SERVER_ERROR)
